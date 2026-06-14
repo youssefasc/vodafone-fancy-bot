@@ -169,6 +169,7 @@ def main():
         send_telegram(msg)
     else:
         print("🔍 مفيش أرقام مميزة جديدة")
+        send_telegram("🔍 فحص الساعة " + __import__('datetime').datetime.now().strftime('%H:%M') + "\nمفيش أرقام مميزة جديدة على فودافون دلوقتي.")
 
     # حفظ الأرقام المشوفة
     for lt in ["simcard", "esim"]:
