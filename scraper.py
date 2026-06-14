@@ -50,7 +50,7 @@ def scrape_numbers(page, line_type: str) -> list[dict]:
     numbers = page.evaluate("""
         () => {
             const allText = document.body.innerText;
-            const regex = /01[0-9]\d{8}/g;
+            const regex = /01[0-9]\\d{8}/g;
             return [...new Set(allText.match(regex) || [])];
         }
     """)
@@ -66,7 +66,7 @@ def scrape_numbers(page, line_type: str) -> list[dict]:
             new_nums = page.evaluate("""
                 () => {
                     const allText = document.body.innerText;
-                    const regex = /01[0-9]\d{8}/g;
+                    const regex = /01[0-9]\\d{8}/g;
                     return [...new Set(allText.match(regex) || [])];
                 }
             """)
@@ -155,20 +155,15 @@ def main():
     has_new = any(new_fancy[lt] for lt in ["simcard", "esim"])
 
     if has_new:
-        msg = "🌟 <b>أرقام مميزة جديدة على فودافون!</b>
-
-"
+        msg = "🌟 <b>أرقام مميزة جديدة على فودافون!</b>\n\n"
 
         for lt in ["simcard", "esim"]:
             if new_fancy[lt]:
                 info = LINE_TYPES[lt]
-                msg += f"{info['emoji']} <b>{info['label']}</b>
-"
+                msg += f"{info['emoji']} <b>{info['label']}</b>\n"
                 for item in new_fancy[lt]:
-                    msg += f"  ├ <code>{item['number']}</code> — {item['reason']}
-"
-                msg += "
-"
+                    msg += f"  ├ <code>{item['number']}</code> — {item['reason']}\n"
+                msg += "\n"
 
         msg += "🔗 <a href='https://eshop.vodafone.com.eg/en/lines/red/numbers'>شوف واشتري هنا</a>"
         send_telegram(msg)
