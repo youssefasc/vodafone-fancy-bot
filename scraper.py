@@ -15,23 +15,69 @@ LINE_TYPES = {
 
 def is_fancy(number: str) -> dict:
     d = number[-8:]
-    if new_set := len(set(d)):
-        if new_set == 1:
-            return {"fancy": True, "reason": "متكررة كلها 🔥"}
+
+    # 1. متكررة كلها: 11111111
+    if len(set(d)) == 1:
+        return {"fancy": True, "reason": "متكررة كلها 🔥"}
+
+    # 2. متسلسلة تصاعدي: 12345678
     if all(int(d[i]) - int(d[i-1]) == 1 for i in range(1, len(d))):
         return {"fancy": True, "reason": "متسلسلة تصاعدي ⬆️"}
+
+    # 3. متسلسلة تنازلي: 87654321
     if all(int(d[i-1]) - int(d[i]) == 1 for i in range(1, len(d))):
         return {"fancy": True, "reason": "متسلسلة تنازلي ⬇️"}
+
+    # 4. نصف متكرر: 12341234
     if d[:4] == d[4:]:
         return {"fancy": True, "reason": "نصف متكرر 🔁"}
+
+    # 5. أول 4 متكررة: 11112345
     if len(set(d[:4])) == 1:
         return {"fancy": True, "reason": "أول 4 متكررة ✨"}
+
+    # 6. آخر 4 متكررة: 12345555
     if len(set(d[4:])) == 1:
         return {"fancy": True, "reason": "آخر 4 متكررة ✨"}
+
+    # 7. رقمين فريدين فقط: 10101010
     if len(set(d)) <= 2:
         return {"fancy": True, "reason": "رقمين فريدين فقط 💎"}
+
+    # 8. شبه متكرر: 11100111
     if len(set(d)) <= 3 and d.count(d[0]) >= 4:
         return {"fancy": True, "reason": "شبه متكرر ⭐"}
+
+    # 9. آخر 3 أو 4 متكررة: 1700777 أو 18008888
+    for tail_len in [4, 3]:
+        tail = d[-tail_len:]
+        if len(set(tail)) == 1:
+            return {"fancy": True, "reason": f"آخر {tail_len} متكررة 🔢"}
+
+    # 10. مجموعتين من 3 بفرق ثابت: 100200 / 300400 / 500600
+    # بنشوف آخر 6 أرقام
+    d6 = d[-6:]
+    if len(d6) == 6:
+        g1, g2 = int(d6[:3]), int(d6[3:])
+        diff = g2 - g1
+        # الفرق بين المجموعتين ثابت وموجب ومنطقي (100, 200, إلخ)
+        if diff > 0 and diff % 100 == 0 and g1 > 0 and g2 > 0:
+            return {"fancy": True, "reason": f"مجموعتين متسلسلتين ({d6[:3]}-{d6[3:]}) 🎯"}
+
+    # 11. مجموعتين من 3 بمضاعفة: 100200 / 200400 / 111222
+    if len(d6) == 6:
+        g1, g2 = int(d6[:3]), int(d6[3:])
+        if g1 > 0 and g2 == g1 * 2:
+            return {"fancy": True, "reason": f"مجموعتين مضاعفة ({d6[:3]}-{d6[3:]}) ✖️"}
+
+    # 12. مجموعتين من 4 بفرق ثابت: 10002000
+    d8 = d[-8:]
+    if len(d8) == 8:
+        g1, g2 = int(d8[:4]), int(d8[4:])
+        diff = g2 - g1
+        if diff > 0 and diff % 1000 == 0 and g1 > 0 and g2 > 0:
+            return {"fancy": True, "reason": f"مجموعتين متسلسلتين ({d8[:4]}-{d8[4:]}) 🎯"}
+
     return {"fancy": False}
 
 def scrape_numbers(page, line_type: str) -> list[dict]:
