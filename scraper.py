@@ -114,14 +114,14 @@ def scrape_numbers(page, line_type: str) -> list[dict]:
     collect()  # الدفعة الأولى
 
     no_change_count = 0
-    max_scrolls = 40  # حد أقصى للأمان
+    max_scrolls = 100  # حد أقصى للأمان
 
     for i in range(max_scrolls):
         prev_count = len(results)
 
         # انزل لتحت تدريجياً
         page.evaluate("window.scrollBy(0, document.body.scrollHeight)")
-        time.sleep(1.5)  # استنى التحميل
+        time.sleep(3)  # استنى التحميل
 
         collect()
 
@@ -146,7 +146,7 @@ def scrape_numbers(page, line_type: str) -> list[dict]:
             for _ in range(10):
                 prev = len(results)
                 page.evaluate("window.scrollBy(0, document.body.scrollHeight)")
-                time.sleep(1.2)
+                time.sleep(3)
                 collect()
                 if len(results) == prev:
                     break
