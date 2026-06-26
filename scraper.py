@@ -81,7 +81,7 @@ def is_fancy(number: str) -> dict:
     return {"fancy": False}
 
 def scrape_numbers(page, line_type: str) -> list[dict]:
-    """يجيب الأرقام حسب نوع الخط (simcard أو esim)"""
+    """يجيب الأرقام حسب نوع الخط (simcard أو esim) مع scroll تدريجي"""
     print(f"📡 بجيب أرقام {line_type}...")
 
     # اختار نوع الخط
@@ -92,34 +92,64 @@ def scrape_numbers(page, line_type: str) -> list[dict]:
 
     time.sleep(2)
 
-    # جيب الأرقام بـ JS
-    numbers = page.evaluate("""
+    extract_js = """
         () => {
             const allText = document.body.innerText;
             const regex = /01[0-9]\\d{8}/g;
             return [...new Set(allText.match(regex) || [])];
         }
-    """)
+    """
 
-    # كمّل بـ Shuffle عشان تجيب أرقام أكتر
-    results = list(numbers)
-    seen_set = set(numbers)
+    seen_set = set()
+    results = []
 
-    for i in range(5):
+    def collect():
+        nums = page.evaluate(extract_js)
+        for n in nums:
+            if n not in seen_set:
+                seen_set.add(n)
+                results.append(n)
+
+    # ── Scroll تدريجي لتحميل كل الأرقام (lazy loading) ──
+    collect()  # الدفعة الأولى
+
+    no_change_count = 0
+    max_scrolls = 40  # حد أقصى للأمان
+
+    for i in range(max_scrolls):
+        prev_count = len(results)
+
+        # انزل لتحت تدريجياً
+        page.evaluate("window.scrollBy(0, document.body.scrollHeight)")
+        time.sleep(1.5)  # استنى التحميل
+
+        collect()
+
+        # لو مفيش أرقام جديدة بعد scroll
+        if len(results) == prev_count:
+            no_change_count += 1
+            # لو 3 مرات ورا بعض مفيش جديد، يبقى خلصنا
+            if no_change_count >= 3:
+                print(f"   ⏹️  توقف الـ scroll بعد {i+1} مرة (مفيش أرقام جديدة)")
+                break
+        else:
+            no_change_count = 0
+            print(f"   📜 scroll {i+1}: {len(results)} رقم لحد دلوقتي")
+
+    # ── Shuffle عشان نجيب أرقام مختلفة كمان ──
+    for i in range(3):
         try:
             page.click("text=Shuffle", timeout=5000)
             time.sleep(2)
-            new_nums = page.evaluate("""
-                () => {
-                    const allText = document.body.innerText;
-                    const regex = /01[0-9]\\d{8}/g;
-                    return [...new Set(allText.match(regex) || [])];
-                }
-            """)
-            for n in new_nums:
-                if n not in seen_set:
-                    seen_set.add(n)
-                    results.append(n)
+            collect()
+            # scroll بعد الـ shuffle كمان
+            for _ in range(10):
+                prev = len(results)
+                page.evaluate("window.scrollBy(0, document.body.scrollHeight)")
+                time.sleep(1.2)
+                collect()
+                if len(results) == prev:
+                    break
         except:
             break
 
