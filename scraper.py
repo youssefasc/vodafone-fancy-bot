@@ -111,6 +111,32 @@ def scrape_numbers(page, line_type: str) -> list[dict]:
                 results.append(n)
 
     # ── Scroll تدريجي لتحميل كل الأرقام (lazy loading) ──
+    # دالة تلاقي الـ container اللي فيه scroll داخلي (اللي فيه أكتر أرقام)
+    scroll_inner_js = """
+        () => {
+            const phoneRe = /01[0-9]\\d{8}/g;
+            // لاقي كل العناصر اللي ليها overflow scroll/auto وطولها الداخلي أكبر من الظاهر
+            const scrollables = [...document.querySelectorAll('*')].filter(el => {
+                const s = getComputedStyle(el);
+                const canScroll = /(auto|scroll)/.test(s.overflowY);
+                return canScroll && el.scrollHeight > el.clientHeight + 20;
+            });
+            // اختار الـ container اللي جواه أكتر أرقام
+            let best = null, bestCount = 0;
+            for (const el of scrollables) {
+                const c = (el.innerText.match(phoneRe) || []).length;
+                if (c > bestCount) { bestCount = c; best = el; }
+            }
+            if (best) {
+                best.scrollTop = best.scrollHeight;
+                return {mode: 'container', count: bestCount};
+            }
+            // fallback: الصفحة كلها
+            window.scrollTo(0, document.body.scrollHeight);
+            return {mode: 'window', count: 0};
+        }
+    """
+
     collect()  # الدفعة الأولى
 
     no_change_count = 0
@@ -119,8 +145,8 @@ def scrape_numbers(page, line_type: str) -> list[dict]:
     for i in range(max_scrolls):
         prev_count = len(results)
 
-        # انزل لتحت تدريجياً
-        page.evaluate("window.scrollBy(0, document.body.scrollHeight)")
+        # نزّل الـ container الداخلي (مش الصفحة كلها)
+        info = page.evaluate(scroll_inner_js)
         time.sleep(3)  # استنى التحميل
 
         collect()
@@ -134,7 +160,7 @@ def scrape_numbers(page, line_type: str) -> list[dict]:
                 break
         else:
             no_change_count = 0
-            print(f"   📜 scroll {i+1}: {len(results)} رقم لحد دلوقتي")
+            print(f"   📜 scroll {i+1}: {len(results)} رقم (via {info.get('mode')})")
 
     # ── Shuffle عشان نجيب أرقام مختلفة كمان ──
     for i in range(3):
@@ -142,10 +168,10 @@ def scrape_numbers(page, line_type: str) -> list[dict]:
             page.click("text=Shuffle", timeout=5000)
             time.sleep(2)
             collect()
-            # scroll بعد الـ shuffle كمان
-            for _ in range(10):
+            # scroll داخلي بعد الـ shuffle كمان
+            for _ in range(15):
                 prev = len(results)
-                page.evaluate("window.scrollBy(0, document.body.scrollHeight)")
+                page.evaluate(scroll_inner_js)
                 time.sleep(3)
                 collect()
                 if len(results) == prev:
