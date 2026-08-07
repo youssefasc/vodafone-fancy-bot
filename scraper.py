@@ -54,15 +54,15 @@ def is_fancy(number: str) -> dict:
         if len(set(tail)) == 1:
             return {"fancy": True, "reason": f"آخر {tail_len} متكررة 🔢"}
 
-    # 10. مجموعتين من 3 بفرق ثابت: 100200 / 300400 / 500600
-    # بنشوف آخر 6 أرقام
+    # 10. مجموعتين من 3 بفرق ثابت (تصاعدي أو تنازلي): 100200 / 300400 / 700600
     d6 = d[-6:]
     if len(d6) == 6:
         g1, g2 = int(d6[:3]), int(d6[3:])
         diff = g2 - g1
-        # الفرق بين المجموعتين ثابت وموجب ومنطقي (100, 200, إلخ)
-        if diff > 0 and diff % 100 == 0 and g1 > 0 and g2 > 0:
-            return {"fancy": True, "reason": f"مجموعتين متسلسلتين ({d6[:3]}-{d6[3:]}) 🎯"}
+        # الفرق بين المجموعتين ثابت (موجب أو سالب) ومضاعف لـ 100
+        if diff != 0 and diff % 100 == 0 and g1 >= 0 and g2 >= 0:
+            arrow = "⬆️" if diff > 0 else "⬇️"
+            return {"fancy": True, "reason": f"مجموعتين متسلسلتين ({d6[:3]}-{d6[3:]}) {arrow}"}
 
     # 11. مجموعتين من 3 بمضاعفة: 100200 / 200400 / 111222
     if len(d6) == 6:
@@ -70,13 +70,41 @@ def is_fancy(number: str) -> dict:
         if g1 > 0 and g2 == g1 * 2:
             return {"fancy": True, "reason": f"مجموعتين مضاعفة ({d6[:3]}-{d6[3:]}) ✖️"}
 
-    # 12. مجموعتين من 4 بفرق ثابت: 10002000
+    # 12. مجموعتين من 4 بفرق ثابت (تصاعدي أو تنازلي): 10002000 / 70006000
     d8 = d[-8:]
     if len(d8) == 8:
         g1, g2 = int(d8[:4]), int(d8[4:])
         diff = g2 - g1
-        if diff > 0 and diff % 1000 == 0 and g1 > 0 and g2 > 0:
-            return {"fancy": True, "reason": f"مجموعتين متسلسلتين ({d8[:4]}-{d8[4:]}) 🎯"}
+        if diff != 0 and diff % 1000 == 0 and g1 >= 0 and g2 >= 0:
+            arrow = "⬆️" if diff > 0 else "⬇️"
+            return {"fancy": True, "reason": f"مجموعتين متسلسلتين ({d8[:4]}-{d8[4:]}) {arrow}"}
+
+    # 13. الرقم مقسم لـ 3 مجموعات (3-3-2) وفيها نمط: 700-600-50 أو تكرار جزئي
+    if len(d) == 8:
+        g1, g2, g3 = d[0:3], d[3:6], d[6:8]
+        n1, n2 = int(g1), int(g2)
+        diff = n1 - n2
+        # أول مجموعتين بفرق ثابت (100 أو مضاعف له) + المجموعة الأخيرة أي حاجة
+        if diff != 0 and diff % 100 == 0:
+            return {"fancy": True, "reason": f"نمط ({g1}-{g2}-{g3}) 🎯"}
+        # أول مجموعتين متطابقتين: 700-700-xx
+        if g1 == g2:
+            return {"fancy": True, "reason": f"مجموعتين متطابقتين ({g1}-{g2}-{g3}) 🔁"}
+
+    # 14. أزواج متكررة داخل الرقم: 70060050 → "00" بيتكرر، أو نمط ABAB بمستوى الزوج
+    pairs = [d[i:i+2] for i in range(0, 8, 2)]  # 4 أزواج
+    if len(set(pairs)) <= 2:
+        return {"fancy": True, "reason": f"أزواج متكررة ({'-'.join(pairs)}) 🔂"}
+    # لو زوج معين اتكرر مرتين على الأقل (زي 00 في 70-06-00-50)
+    from collections import Counter
+    pair_counts = Counter(pairs)
+    most_common_pair, freq = pair_counts.most_common(1)[0]
+    if freq >= 2 and most_common_pair != "":
+        return {"fancy": True, "reason": f"الزوج ({most_common_pair}) متكرر {freq} مرات 🔂"}
+
+    # 15. آخر مجموعتين من 2 متطابقتين: xxxx-50-50
+    if d[-2:] == d[-4:-2]:
+        return {"fancy": True, "reason": f"آخر زوجين متطابقين ({d[-4:]}) 🔁"}
 
     return {"fancy": False}
 
