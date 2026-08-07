@@ -109,7 +109,7 @@ def is_fancy(number: str) -> dict:
     return {"fancy": False}
 
 def scrape_numbers(page, line_type: str) -> list[dict]:
-    """يجيب الأرقام حسب نوع الخط (simcard أو esim) مع scroll تدريجي"""
+    """يجيب الأرقام حسب نوع الخط (simcard أو esim) مع scroll تدريجي قوي"""
     print(f"📡 بجيب أرقام {line_type}...")
 
     # اختار نوع الخط
@@ -133,37 +133,58 @@ def scrape_numbers(page, line_type: str) -> list[dict]:
 
     def collect():
         nums = page.evaluate(extract_js)
+        added = 0
         for n in nums:
             if n not in seen_set:
                 seen_set.add(n)
                 results.append(n)
+                added += 1
+        return added
 
-    # ── Scroll تدريجي لتحميل كل الأرقام (lazy loading) ──
-    # دالة تلاقي الـ container اللي فيه scroll داخلي (اللي فيه أكتر أرقام)
-    scroll_inner_js = """
+    # ── دالة تشخيصية: تلاقي كل الـ containers القابلة للـ scroll ──
+    diagnose_js = """
         () => {
             const phoneRe = /01[0-9]\\d{8}/g;
-            // لاقي كل العناصر اللي ليها overflow scroll/auto وطولها الداخلي أكبر من الظاهر
-            const scrollables = [...document.querySelectorAll('*')].filter(el => {
+            const els = [...document.querySelectorAll('*')].filter(el => {
                 const s = getComputedStyle(el);
                 const canScroll = /(auto|scroll)/.test(s.overflowY);
                 return canScroll && el.scrollHeight > el.clientHeight + 20;
             });
-            // اختار الـ container اللي جواه أكتر أرقام
-            let best = null, bestCount = 0;
-            for (const el of scrollables) {
-                const c = (el.innerText.match(phoneRe) || []).length;
-                if (c > bestCount) { bestCount = c; best = el; }
-            }
-            if (best) {
-                best.scrollTop = best.scrollHeight;
-                return {mode: 'container', count: bestCount};
-            }
-            // fallback: الصفحة كلها
-            window.scrollTo(0, document.body.scrollHeight);
-            return {mode: 'window', count: 0};
+            return els.map(el => ({
+                tag: el.tagName,
+                cls: (el.className || '').toString().slice(0, 40),
+                scrollHeight: el.scrollHeight,
+                clientHeight: el.clientHeight,
+                numbersInside: (el.innerText.match(phoneRe) || []).length
+            })).sort((a,b) => b.numbersInside - a.numbersInside).slice(0, 5);
         }
     """
+
+    # ── تعمل scroll على *كل* الـ containers القابلة للـ scroll مرة واحدة ──
+    scroll_all_js = """
+        () => {
+            const els = [...document.querySelectorAll('*')].filter(el => {
+                const s = getComputedStyle(el);
+                const canScroll = /(auto|scroll)/.test(s.overflowY);
+                return canScroll && el.scrollHeight > el.clientHeight + 20;
+            });
+            let scrolled = 0;
+            for (const el of els) {
+                el.scrollTop = el.scrollHeight;
+                scrolled++;
+            }
+            // كمان الصفحة نفسها والـ documentElement
+            window.scrollTo(0, document.body.scrollHeight);
+            document.documentElement.scrollTop = document.documentElement.scrollHeight;
+            return scrolled;
+        }
+    """
+
+    # طباعة تشخيص أول مرة بس
+    diag = page.evaluate(diagnose_js)
+    print(f"   🔍 لقيت {len(diag)} عنصر قابل للـ scroll، أكبرهم:")
+    for d in diag[:3]:
+        print(f"      - {d['tag']}.{d['cls']} | أرقام جواه: {d['numbersInside']} | scrollH:{d['scrollHeight']} clientH:{d['clientHeight']}")
 
     collect()  # الدفعة الأولى
 
@@ -173,22 +194,33 @@ def scrape_numbers(page, line_type: str) -> list[dict]:
     for i in range(max_scrolls):
         prev_count = len(results)
 
-        # نزّل الـ container الداخلي (مش الصفحة كلها)
-        info = page.evaluate(scroll_inner_js)
+        # 1) scroll لكل الـ containers القابلة للـ scroll
+        n_scrolled = page.evaluate(scroll_all_js)
+
+        # 2) كمان محاكاة scroll فعلي بالماوس فوق منتصف الشاشة (بيفعل أي lazy-load مبني على أحداث حقيقية)
+        try:
+            page.mouse.wheel(0, 2000)
+        except Exception:
+            pass
+
+        # 3) كمان زرار End / PageDown كـ fallback إضافي
+        try:
+            page.keyboard.press("End")
+        except Exception:
+            pass
+
         time.sleep(3)  # استنى التحميل
 
-        collect()
+        added = collect()
 
-        # لو مفيش أرقام جديدة بعد scroll
         if len(results) == prev_count:
             no_change_count += 1
-            # لو 3 مرات ورا بعض مفيش جديد، يبقى خلصنا
             if no_change_count >= 3:
                 print(f"   ⏹️  توقف الـ scroll بعد {i+1} مرة (مفيش أرقام جديدة)")
                 break
         else:
             no_change_count = 0
-            print(f"   📜 scroll {i+1}: {len(results)} رقم (via {info.get('mode')})")
+            print(f"   📜 scroll {i+1}: +{added} رقم جديد → إجمالي {len(results)} ({n_scrolled} container اتحرك)")
 
     # ── Shuffle عشان نجيب أرقام مختلفة كمان ──
     for i in range(3):
@@ -196,10 +228,13 @@ def scrape_numbers(page, line_type: str) -> list[dict]:
             page.click("text=Shuffle", timeout=5000)
             time.sleep(2)
             collect()
-            # scroll داخلي بعد الـ shuffle كمان
             for _ in range(15):
                 prev = len(results)
-                page.evaluate(scroll_inner_js)
+                page.evaluate(scroll_all_js)
+                try:
+                    page.mouse.wheel(0, 2000)
+                except Exception:
+                    pass
                 time.sleep(3)
                 collect()
                 if len(results) == prev:
