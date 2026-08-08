@@ -112,11 +112,17 @@ def scrape_numbers(page, line_type: str) -> list[dict]:
     """يجيب الأرقام حسب نوع الخط (simcard أو esim) مع scroll تدريجي قوي"""
     print(f"📡 بجيب أرقام {line_type}...")
 
-    # اختار نوع الخط
-    if line_type == "simcard":
-        page.click("text=Sim Card", timeout=10000)
-    else:
-        page.click("text=eSim", timeout=10000)
+    # قفل أي cookie banner تاني ممكن يكون ظهر (زي لو ظهر تاني بعد تفاعل)
+    close_cookie_banner(page)
+
+    # اختار نوع الخط - مع force=True كحماية لو في overlay خفي
+    target = "text=Sim Card" if line_type == "simcard" else "text=eSim"
+    try:
+        page.click(target, timeout=10000, force=True)
+    except Exception as e:
+        print(f"   ⚠️ فشل الكليك العادي ({e}); بجرب تاني بعد قفل الـ cookie banner")
+        close_cookie_banner(page)
+        page.click(target, timeout=10000, force=True)
 
     time.sleep(2)
 
@@ -225,7 +231,7 @@ def scrape_numbers(page, line_type: str) -> list[dict]:
     # ── Shuffle عشان نجيب أرقام مختلفة كمان ──
     for i in range(3):
         try:
-            page.click("text=Shuffle", timeout=5000)
+            page.click("text=Shuffle", timeout=5000, force=True)
             time.sleep(2)
             collect()
             for _ in range(15):
@@ -244,6 +250,61 @@ def scrape_numbers(page, line_type: str) -> list[dict]:
 
     print(f"✅ {line_type}: لقيت {len(results)} رقم")
     return [{"number": n, "type": line_type} for n in results]
+
+def close_cookie_banner(page):
+    """يقفل الـ Cookie Consent Banner (OneTrust) اللي بيغطي الصفحة ويمنع الكليكات"""
+    selectors_to_try = [
+        "#onetrust-accept-btn-handler",       # زرار "Accept All" المعتاد بتاع OneTrust
+        "button#onetrust-accept-btn-handler",
+        ".onetrust-close-btn-handler",
+        "#onetrust-reject-all-handler",
+        "button:has-text('Accept')",
+        "button:has-text('Accept All')",
+        "button:has-text('I Accept')",
+        "button:has-text('موافق')",
+    ]
+
+    for sel in selectors_to_try:
+        try:
+            btn = page.locator(sel).first
+            if btn.is_visible(timeout=1500):
+                btn.click(timeout=3000, force=True)
+                print(f"   🍪 قفلت الـ cookie banner بـ: {sel}")
+                time.sleep(1)
+                return True
+        except Exception:
+            continue
+
+    # لو الأزرار مش موجودة، امسح الـ overlay بالـ JS مباشرة كـ fallback أخير
+    try:
+        removed = page.evaluate("""
+            () => {
+                const selectors = [
+                    '#onetrust-consent-sdk',
+                    '.onetrust-pc-dark-filter',
+                    '#onetrust-banner-sdk',
+                    '.ot-sdk-container'
+                ];
+                let removedCount = 0;
+                for (const sel of selectors) {
+                    document.querySelectorAll(sel).forEach(el => {
+                        el.remove();
+                        removedCount++;
+                    });
+                }
+                return removedCount;
+            }
+        """)
+        if removed:
+            print(f"   🍪 مسحت {removed} عنصر من الـ cookie overlay بالـ JS")
+            time.sleep(1)
+            return True
+    except Exception as e:
+        print(f"   ⚠️ فشل مسح الـ cookie overlay: {e}")
+
+    print("   ℹ️ مفيش cookie banner ظاهر (أو اتقفل من قبل)")
+    return False
+
 
 def scrape_vodafone() -> dict:
     """بيرجع dict فيه أرقام كل نوع"""
@@ -264,6 +325,9 @@ def scrape_vodafone() -> dict:
                 timeout=60000
             )
             time.sleep(3)
+
+            # ── قفل الـ Cookie Consent Banner (OneTrust) قبل أي تفاعل ──
+            close_cookie_banner(page)
 
             for lt in ["simcard", "esim"]:
                 items = scrape_numbers(page, lt)
