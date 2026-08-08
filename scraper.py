@@ -166,27 +166,39 @@ def scrape_numbers(page, line_type: str) -> list[dict]:
         }
     """
 
-    # ── تعمل scroll على *كل* الـ containers القابلة للـ scroll مرة واحدة ──
-    scroll_all_js = """
+    # ── يلاقي أفضل container (اللي فيه أكتر أرقام) ويرجّع مرجعه ──
+    find_container_js = """
         () => {
+            const phoneRe = /01[0-9]\\d{8}/g;
             const els = [...document.querySelectorAll('*')].filter(el => {
                 const s = getComputedStyle(el);
                 const canScroll = /(auto|scroll)/.test(s.overflowY);
                 return canScroll && el.scrollHeight > el.clientHeight + 20;
             });
-            let scrolled = 0;
+            let best = null, bestCount = -1;
             for (const el of els) {
-                el.scrollTop = el.scrollHeight;
-                scrolled++;
+                const c = (el.innerText.match(phoneRe) || []).length;
+                if (c > bestCount) { bestCount = c; best = el; }
             }
-            // كمان الصفحة نفسها والـ documentElement
-            window.scrollTo(0, document.body.scrollHeight);
-            document.documentElement.scrollTop = document.documentElement.scrollHeight;
-            return scrolled;
+            if (best) { window.__scrollTarget = best; }
+            return best ? {found: true, scrollHeight: best.scrollHeight, clientHeight: best.clientHeight} : {found: false};
         }
     """
 
-    # طباعة تشخيص أول مرة بس
+    # ── ينزل الـ container المحفوظ ويطلق أحداث scroll حقيقية، ويرجع scrollHeight الجديد ──
+    scroll_and_measure_js = """
+        () => {
+            const el = window.__scrollTarget;
+            if (!el) return {scrollHeight: 0, clientHeight: 0, scrollTop: 0};
+            el.scrollTop = el.scrollHeight;
+            el.dispatchEvent(new Event('scroll', {bubbles: true}));
+            // كمان جرب wheel event فعلي على العنصر نفسه
+            el.dispatchEvent(new WheelEvent('wheel', {deltaY: 3000, bubbles: true}));
+            return {scrollHeight: el.scrollHeight, clientHeight: el.clientHeight, scrollTop: el.scrollTop};
+        }
+    """
+
+    # طباعة تشخيص أول مرة
     diag = page.evaluate(diagnose_js)
     print(f"   🔍 لقيت {len(diag)} عنصر قابل للـ scroll، أكبرهم:")
     for d in diag[:3]:
@@ -194,57 +206,75 @@ def scrape_numbers(page, line_type: str) -> list[dict]:
 
     collect()  # الدفعة الأولى
 
-    no_change_count = 0
-    max_scrolls = 100  # حد أقصى للأمان
+    # حدد الـ container المستهدف مرة واحدة
+    found = page.evaluate(find_container_js)
 
-    for i in range(max_scrolls):
-        prev_count = len(results)
+    if found.get("found"):
+        print(f"   🎯 هستهدف الـ container: scrollH={found['scrollHeight']} clientH={found['clientHeight']}")
 
-        # 1) scroll لكل الـ containers القابلة للـ scroll
-        n_scrolled = page.evaluate(scroll_all_js)
+        last_scroll_height = found["scrollHeight"]
+        no_growth_count = 0
+        max_scrolls = 150  # حد أقصى للأمان (سريع فمش هياخد وقت طويل)
 
-        # 2) كمان محاكاة scroll فعلي بالماوس فوق منتصف الشاشة (بيفعل أي lazy-load مبني على أحداث حقيقية)
-        try:
-            page.mouse.wheel(0, 2000)
-        except Exception:
-            pass
+        for i in range(max_scrolls):
+            prev_result_count = len(results)
 
-        # 3) كمان زرار End / PageDown كـ fallback إضافي
-        try:
-            page.keyboard.press("End")
-        except Exception:
-            pass
+            info = page.evaluate(scroll_and_measure_js)
+            new_height = info.get("scrollHeight", last_scroll_height)
 
-        time.sleep(3)  # استنى التحميل
+            # استنى شوية بس بذكاء: نبدأ بانتظار قصير ونزوده بس لو محتاج
+            time.sleep(0.6)
+            collect()
 
-        added = collect()
+            # كمان جرب تاني بعد انتظار أطول لو مفيش تغيير أول مرة
+            if new_height <= last_scroll_height and len(results) == prev_result_count:
+                time.sleep(1.5)
+                info2 = page.evaluate(scroll_and_measure_js)
+                new_height = max(new_height, info2.get("scrollHeight", new_height))
+                collect()
 
-        if len(results) == prev_count:
-            no_change_count += 1
-            if no_change_count >= 3:
-                print(f"   ⏹️  توقف الـ scroll بعد {i+1} مرة (مفيش أرقام جديدة)")
+            grew = new_height > last_scroll_height
+            got_new_numbers = len(results) > prev_result_count
+
+            if not grew and not got_new_numbers:
+                no_growth_count += 1
+                if no_growth_count >= 5:
+                    print(f"   ⏹️  توقف الـ scroll بعد {i+1} محاولة (الـ container مابقاش بيكبر)")
+                    break
+            else:
+                no_growth_count = 0
+                last_scroll_height = max(last_scroll_height, new_height)
+                if (i + 1) % 5 == 0 or got_new_numbers:
+                    print(f"   📜 scroll {i+1}: إجمالي {len(results)} رقم (scrollH={new_height})")
+    else:
+        print("   ⚠️ مالقيتش container قابل للـ scroll فيه أرقام — هجرب scroll الصفحة العادي")
+        for i in range(20):
+            prev = len(results)
+            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            time.sleep(1.5)
+            collect()
+            if len(results) == prev:
                 break
-        else:
-            no_change_count = 0
-            print(f"   📜 scroll {i+1}: +{added} رقم جديد → إجمالي {len(results)} ({n_scrolled} container اتحرك)")
 
     # ── Shuffle عشان نجيب أرقام مختلفة كمان ──
     for i in range(3):
         try:
             page.click("text=Shuffle", timeout=5000, force=True)
-            time.sleep(2)
+            time.sleep(1.5)
             collect()
-            for _ in range(15):
+            page.evaluate(find_container_js)
+            stagnant = 0
+            for _ in range(30):
                 prev = len(results)
-                page.evaluate(scroll_all_js)
-                try:
-                    page.mouse.wheel(0, 2000)
-                except Exception:
-                    pass
-                time.sleep(3)
+                page.evaluate(scroll_and_measure_js)
+                time.sleep(0.6)
                 collect()
                 if len(results) == prev:
-                    break
+                    stagnant += 1
+                    if stagnant >= 4:
+                        break
+                else:
+                    stagnant = 0
         except:
             break
 
